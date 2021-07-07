@@ -1,80 +1,133 @@
 #include <stdio.h>
 #include <math.h>
+#include <time.h>
 #include "complex.h"
+#include "gsl_rng.h"
 
 //Parámetros
-#define N 1000
+#define N 2000
 #define ND 100
-#define NCICLOS 250
-#define LAMBDA 0.3
-#define PASOS 10000
+#define NCICLOS N/10
+#define LAMBDA 0.1
+#define PASOS 1000
 
 //Constantes
 #define PI 3.141592
 #define K0 2*PI*NCICLOS/(1.*N)
 #define STIL 1/(4.*K0*K0)
 
+gsl_rng *tau;
+
 fcomplex funcionInicial(int j);
-void inicializarFuncioninicial(fcomplex phi[], fcomplex alpha[], fcomplex gamma[], double v[], int n);
+void inicializarFuncioninicial(fcomplex phi[], fcomplex alpha[], fcomplex gamma[], double v[], int n, double lam);
 void calculoBeta(fcomplex phi[], fcomplex beta[],fcomplex gamma[], int n);
 void calculoX(fcomplex alpha[], fcomplex beta[], fcomplex x[], int n);
 void paso(fcomplex phi[], fcomplex alpha[], fcomplex beta[], fcomplex x[], fcomplex gamma[], int n, int *t);
+double calculoPd(fcomplex phi[], int n);
+double calculoPi(fcomplex phi[], int n);
 
 int main(){
+    
+    //Inicializar num aleatorios
+    extern gsl_rng *tau;
+    int semilla = time(NULL);
+    
+    tau = gsl_rng_alloc(gsl_rng_taus);
+    gsl_rng_set(tau,semilla);
     
     fcomplex phi[N+1];//Función de onda
     fcomplex alpha[N], beta[N], x[N], gamma[N];
     double v[N+1];
-    double norma, pd;
-    int n, t;
-    FILE *f1, *f2, *f3;
+    double norma, pd, pi, al, lam;
+    int n, t, mt;
+    FILE *f1;
     
-    f1 = fopen("ecScho.txt","w");
-    f2 = fopen("potencial.txt","w");
-    f3 = fopen("norma.txt", "w");
+    f1 = fopen("prueba.txt","w");
     
     //Inicializo variables
     n = N;
     t = 0;
+    lam = LAMBDA;
 
-    inicializarFuncioninicial(phi, alpha, gamma, v, n); //Inicializa valores y calcula el valor de alpha y gamma
+    inicializarFuncioninicial(phi, alpha, gamma, v, n, lam); //Inicializa valores y calcula el valor de alpha y gamma
     
-    //Output potencial
-    for(int i=0;i<=n;i++)
-        fprintf(f2,"%lf\t",v[i]);
     
     //Programa  y output
-    for(;t<PASOS;){
-        
-        inicializarFuncioninicial(phi, alpha, gamma, v, n);
+    
+    for(int p=0;p<PASOS;p++){
+        printf("%i\n",p);
         
         for(int a=0;a<ND;a++) paso(phi, alpha, beta, x, gamma, n, &t);
         
+        //Calculo PD
+        pd = calculoPd(phi, n);
+        al = gsl_rng_uniform(tau);
+        
+        if(al<pd){
+            mt++;
+            
+            inicializarFuncioninicial(phi, alpha, gamma, v, n, lam);
+            continue;
+        }
+        
+        for(int i=4*n/5.;i<=n; i++){
+            phi[i] = Complex(0,0);
+        }
+        
+        //Normalización phi
         norma = 0;
         //Output
         for(int i=0;i<=n;i++){
-            fprintf(f1,"%lg\t",Cabs(phi[i])*Cabs(phi[i]));
             norma += Cabs(phi[i])*Cabs(phi[i]);
         }
-        fprintf(f1,"\n");
         
-        fprintf(f3,"%lg\t",norma);
+        norma = sqrt(norma);
+        
+        for(int i=0; i<=n; i++){
+            phi[i] = RCmul(1/(1.*norma),phi[i]);
+        }
+        
+        //Calculo PI
+        pi = calculoPi(phi, n);
+        al = gsl_rng_uniform(tau);
+        
+        if(al<pi){
+            inicializarFuncioninicial(phi, alpha, gamma, v, n, lam);
+            continue;
+        }
+        
+        for(int i=0.;i<=n/5.; i++){
+            phi[i] = Complex(0,0);
+        }
+        
+        //Normalización phi
+        norma = 0;
+        //Output
+        for(int i=0;i<=n;i++){
+            norma += Cabs(phi[i])*Cabs(phi[i]);
+        }
+        
+        norma = sqrt(norma);
+        
+        for(int i=0; i<=n; i++){
+            phi[i] = RCmul(1/(1.*norma),phi[i]);
+        }
+        
     }
     
+    printf("COEF:: %lf\n",mt/(1.*PASOS));
     fclose(f1);
-    fclose(f2);
-    fclose(f3);
 }
 
-void inicializarFuncioninicial(fcomplex phi[], fcomplex alpha[], fcomplex gamma[], double v[], int n){
+void inicializarFuncioninicial(fcomplex phi[], fcomplex alpha[], fcomplex gamma[], double v[], int n, double lam){
     
     fcomplex aux0, aux1, mUno;
     
     //Cálculo phi0 e inicializacion potencial V
     for(int i=0;i<=n;i++){
         phi[i] = funcionInicial(i);
-        if((i<=3*N/5)&&(i>=2*N/5)){
-            v[i] = LAMBDA*K0*K0;
+        if((i<=3*n/5)&&(i>=2*n/5)){
+            v[i] = lam*K0*K0;
         }else v[i] = 0;
     }
     
@@ -154,12 +207,22 @@ void paso(fcomplex phi[], fcomplex alpha[], fcomplex beta[], fcomplex x[], fcomp
     *t += 1;
 }
 
-double calculoPd(fcomplex phi[]){
+double calculoPd(fcomplex phi[], int n){
     double pd = 0;
     
-    for(int i=4*N/5.; i<N; i++){
+    for(int i=4*n/5.; i<n; i++){
         pd += Cabs(phi[i])*Cabs(phi[i]);
     }
     
     return pd;
+}
+
+double calculoPi(fcomplex phi[], int n){
+    double pi = 0;
+    
+    for(int i=0.; i<n/5.; i++){
+        pi += Cabs(phi[i])*Cabs(phi[i]);
+    }
+    
+    return pi;
 }
